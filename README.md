@@ -27,9 +27,11 @@ Features:
 
 ## Usage
 
-### HTML
+### HTML/JavaScript
 
 ```JavaScript
+<div id="timeline"></div>
+<script type="text/javascript">
    let rows = [
       {
         keyframes: [
@@ -45,6 +47,7 @@ Features:
     let timeline = new timelineModule.Timeline({id:'timeline'})
 
     timeline.setModel({ rows: rows });
+</script>
 ```
 
 ### Angular
@@ -68,6 +71,56 @@ const options = {
 const timeline = new Timeline(options, model);
 ```
 
+### React
+
+```TypeScript
+import React, { useEffect, useRef, useState } from 'react';
+import { Timeline, TimelineModel } from 'animation-timeline-js';
+type Props = {
+  time: number;
+  model: TimelineModel;
+};
+
+function TimelineComponent(props: Props) {
+  const { model, time } = props;
+  const timelineElRef = useRef<HTMLDivElement>(null);
+  const [timeline, setTimeline] = useState<Timeline>();
+
+  useEffect(() => {
+    let newTimeline: Timeline | null = null;
+    // On component init
+    if (timelineElRef.current) {
+      newTimeline = new Timeline({ id: timelineElRef.current });
+      // Here you can subscribe on timeline component events
+      setTimeline(newTimeline);
+    }
+
+    // cleanup on component unmounted.
+    return () => {
+      timeline?.dispose();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Example to subscribe and pass model or time update:
+  useEffect(() => {
+    if (timeline) {
+      timeline.setModel(model);
+    }
+  }, [model, timeline]);
+
+  // Example to subscribe and pass model or time update:
+  useEffect(() => {
+    if (timeline) {
+      timeline.setTime(time);
+    }
+  }, [time, timeline]);
+
+  return <div ref={timelineElRef} />;
+}
+export default TimelineComponent;
+```
+
 ### Outline list
 
 Outline list\tree can implemented as a separate HTML component and synchronized with the timeline.
@@ -77,19 +130,33 @@ See the [live demo](https://ievgennaida.github.io/animation-timeline-control/)
 
 ## Model
 
+Keyframes model is used to pass keyframes and rows to be visualized.
+Component is using passed model for the visualization purpose and has no method to manage tracks or keyframes.
+It also means that any attached metadata can be passed and it will be preserved
+(Use case: you can attach additional data for each keyframe).
+
 Read only and defined by the interfaces:
 
 - TimelineModel
 - TimelineRow
 - TimelineKeyframe
 
-### Events
+Example on how to add a keyframe to existing model:
+
+```JavaScript
+    const existingModel = timeline.getModel();
+    existingModel.rows[0].keyframes.append({ val: 20 });
+    timeline.setModel(existingModel);
+```
+
+### Events/Methods and options
 
 | Event name      | description                                                                                 |
 | --------------- | ------------------------------------------------------------------------------------------- |
 | timeChanged     | time changed. source can be used to check event sender. args type: TimelineTimeChangedEvent |
 | selected        | keyframe is selected. args type: TimelineSelectedEvent                                      |
 | scroll          | On scroll. args type: TimelineScrollEvent                                                   |
+| scrollFinished  | On scroll finished. args type:  TimelineScrollEvent |
 | dragStarted     | emitted on drag started. args type: TimelineDragEvent                                       |
 | drag            | emitted when dragging. args type: TimelineDragEvent                                         |
 | dragFinished    | emitted when drag finished. args type: TimelineDragEvent                                    |
@@ -106,7 +173,64 @@ this.timeline.onDragStarted((args: TimelineDragEvent) => {
 });
 ```
 
+### Methods
+
+| Method name      | description                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| setTime         | set current active time. Returns bool to indicate whether time was set. Ex: cannot be changed when dragged. Also timeline interactions can be disabled. |
+| getTime         | get current position of the timeline.                                                       |
+| dispose     | Call to unsubscribe from all the events. Important when UI component is unmounted or page is closed. |
+| setOptions  | Set timeline properties                                                                                           |
+| getOptions        | Get current options of the timeline.                                     |
+| getAllKeyframes          | Get array of all keyframes from the current active model.                                              |
+
+### Options
+
+Options can be passed when timeline is created or by calling setOptions method.
+See all options in the TimelineOptions interface.
+
+Main options:
+| Property      | description                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| groupsDraggable         |  keyframes group is draggable. Default: true |
+| keyframesDraggable         | keyframes group is draggable. Default: true                                                      |
+| timelineInteractive     | Timeline can be dragged or position can be changed by user interaction. Default True |
+
+### Keyboard shortcuts
+
+#### Selection Mode
+
+- Click - select single keyframe.
+- Ctrl + Click - add new keyframe, toggle existing keyframe.
+
+Keyframes can be marked as selectable = false to prevent interaction.
+
+#### Zoom Mode
+
+- Ctrl - reverse zoom in/zoom out.
+- Ctrl + Mouse wheel - zoom to the current active cursor. (Same logic for the pan mode)
+
+### Interaction Modes
+
+Selection - allow to select one or group of the keyframes.
+
+- **selection** - Keyframe selection tool selecting single or group of keyframes.
+- **pan** - Pan tool with the possibility to select keyframes.
+- **nonInteractivePan** - Allow only pan without any keyframes interaction. Timeline still can be moved and controlled by option  'timelineInteractive'.
+- **zoom** - zoom tool
+- **none** -  No iteraction, except moving a timeline. Timeline still can be moved and controlled by option 'timelineInteractive'.
+
+Example:
+
+```TypeScript
+  timeline.setInteractionMode('none');
+```
+
+For the TypeScript TimelineInteractionMode enum is used.
+
 ### Timeline units and position
+
+Expected that you have a component or engine that can execute playing a timeline. Ex: SVG has events to run the animations and report current time position. This component is meant only to visualize the position.
 
 Time indicator position can be changed by a method call:
 
@@ -117,11 +241,11 @@ timeline.setTime(1000);
 Current time can be fetched by a method call or by an event:
 
 ```TypeScript
-let units = timeline.getTime();
+let value = timeline.getTime();
 
 timeline.onTimeChanged((event: TimelineTimeChangedEvent) => {
   if(event.source !== TimelineEventSource.User) {
-    units = event.var;
+    value = event.val;
   }
 });
 ```
@@ -134,9 +258,39 @@ timeline._formatUnitsText = (val)=> { return val + ' ms'; };
 
 ### Styling
 
+Timeline is rendered as a canvas, so has no HTML elements for the css styling.
+Styles can be applied on a few levels:
+
+- Global control setting (See TypeScript interface  TimelineStyle)
+- row styles (See TypeScript interface TimelineRowStyle)
+- keyframe styles (See TypeScript interface TimelineKeyframeStyle)
+
 Styles are applied by a global settings and can be overridden by a row or keyframe style.
 
 ## Changes
+
+## 2.2.3
+
+- Small fixes.
+- Dispose method will remove also scroll container event handlers.
+- Fixed demo nonInteractivePan.
+- Fixed timeline player demo.
+- Added scrollFinished event.
+
+## 2.2.2
+
+- Added new option timelineInteractive = true/false to control possibility for user to move timeline position.
+- Added 'nonInteractivePan' interaction mode that is allowing only to pan and change position of the timeline without changing the keyframes position.
+- Added 'none' interaction mode where no interactions are allowed.
+- Added 'play' demo to the index.html
+- Private property _findDraggable is renamed to_filterDraggableElements
+- Options are appended to the current active options, not to default.
+- Fixed order of the build (definitions and tests only after the definitions.)
+- updated build packages.
+
+## 2.2.1
+
+ TypeScript fixes, updated build packages.
 
 ## > 2.0
 
@@ -165,15 +319,22 @@ Run next command to pack JavaScript as a bundle:
 
 ### Debug
 
-VSCode is used as IDE.
+VSCode is used as IDE and configuration is included to the project sources.
+
+To debug project you should run command once files are changed:
+
+```cmd
+npm run build
+```
+
+Then navigate to the debug window and click 'Launch Debug File'.
+Put breakpoint in any typescript file and trigger function from the browser.
 
 Recommended extensions:
 
 - markdownlint
 - ESLint
 - esbenp.prettier-vscode
-
-Click 'debug start' and ensure that unminified version of the file is used.
 
 ### Dev Dependencies
 
